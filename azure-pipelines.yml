@@ -170,6 +170,16 @@ stages:
       - job: SendEmail
         displayName: "Email Results"
         steps:
+          - task: UsePythonVersion@0
+            displayName: "Use Python $(pythonVersion)"
+            inputs:
+              versionSpec: "$(pythonVersion)"
+
+          - script: |
+              cd $(toolDir)
+              pip install --quiet -e .
+            displayName: "Install Tool"
+
           - task: DownloadBuildArtifacts@1
             displayName: "Download Reports"
             inputs:
@@ -179,39 +189,63 @@ stages:
               downloadPath: "$(System.ArtifactsDirectory)"
 
           - script: |
-              # Build email body from summary.md
-              SUMMARY_FILE="$(System.ArtifactsDirectory)/ai-readiness-reports/summary.md"
-              if [ -f "$SUMMARY_FILE" ]; then
-                BODY=$(cat "$SUMMARY_FILE")
-              else
-                BODY="AI Readiness scan completed. Check pipeline artifacts for detailed reports."
+              set -e
+              REPORT_DIR="$(System.ArtifactsDirectory)/ai-readiness-reports"
+              OUTPUT_HTML="$REPORT_DIR/email_report.html"
+
+              # Generate HTML email from JSON reports
+              python -c "
+              from ai_readiness.email_report import generate_email_html
+              import json, glob, os
+              from datetime import datetime
+
+              report_dir = '$REPORT_DIR'
+              json_files = sorted(glob.glob(os.path.join(report_dir, '*.json')))
+              reports = []
+              for jf in json_files:
+                  try:
+                      with open(jf) as f:
+                          data = json.load(f)
+                          if 'overall_score' in data:
+                              reports.append(data)
+                  except:
+                      pass
+
+              pipeline_url = '$(System.CollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId)&view=artifacts'
+
+              html = generate_email_html(
+                  json_reports=reports,
+                  scan_date=datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC'),
+                  target_agents='${{ parameters.targetAgents }}',
+                  llm_enabled=${{ lower(parameters.enableLlm) }} == 'true',
+                  pipeline_url=pipeline_url,
+              )
+              with open('$OUTPUT_HTML', 'w', encoding='utf-8') as f:
+                  f.write(html)
+              print(f'Generated HTML email report ({len(reports)} repos)')
+              "
+
+              echo "##vso[task.setvariable variable=emailHtmlFile]$OUTPUT_HTML"
+            displayName: "Generate HTML Email Report"
+
+          - script: |
+              # Build additional recipients list
+              ADDITIONAL="${{ parameters.additionalEmails }}"
+              TO_LIST="$(Build.RequestedForEmail)"
+              if [ -n "$ADDITIONAL" ]; then
+                TO_LIST="$TO_LIST,$ADDITIONAL"
               fi
-              echo "##vso[task.setvariable variable=emailBody]$BODY"
-            displayName: "Prepare Email Content"
+              echo "##vso[task.setvariable variable=toList]$TO_LIST"
+            displayName: "Build Recipient List"
 
           - task: SendEmail@1
             displayName: "Send Report Email"
             inputs:
-              To: "$(Build.RequestedForEmail)"
+              To: "$(toList)"
               Cc: "koushikmakam@microsoft.com"
-              Subject: "AI Readiness Scan Report — $(Build.BuildNumber)"
-              Body: |
-                AI Readiness Scan Results
-                ========================
-
-                Pipeline: $(Build.DefinitionName)
-                Build: $(Build.BuildNumber)
-                Triggered by: $(Build.RequestedFor)
-                Date: $(Build.SourceVersion)
-
-                Target Agents: ${{ parameters.targetAgents }}
-                LLM Analysis: ${{ parameters.enableLlm }}
-
-                Full reports are attached as pipeline artifacts.
-                View them at: $(System.CollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId)&view=artifacts
-
-                ---
-                This is an automated report from the AI Readiness Tool.
+              Subject: "📊 AI Readiness Report — $(Build.BuildNumber)"
+              BodyAsHtml: true
+              Body: "$(emailHtmlFile)"
               AddAttachment: true
               Attachment: "$(System.ArtifactsDirectory)/ai-readiness-reports/summary.md"
             condition: always()
