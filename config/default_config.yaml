@@ -1,0 +1,59 @@
+dimensions:
+  documentation:
+    enabled: true
+    weight: 12
+    checker: ai_readiness.checkers.documentation.DocumentationChecker
+  setup_onboarding:
+    enabled: true
+    weight: 10
+    checker: ai_readiness.checkers.setup_onboarding.SetupOnboardingChecker
+  ai_config:
+    enabled: true
+    weight: 10
+    checker: ai_readiness.checkers.ai_config.AIConfigChecker
+  ai_code_quality:
+    enabled: true
+    weight: 13
+    checker: ai_readiness.checkers.ai_code_quality.AICodeQualityChecker
+  testing:
+    enabled: true
+    weight: 15
+    checker: ai_readiness.checkers.testing.TestingChecker
+  code_quality:
+    enabled: true
+    weight: 10
+    checker: ai_readiness.checkers.code_quality.CodeQualityChecker
+  dependency:
+    enabled: true
+    weight: 5
+    checker: ai_readiness.checkers.dependency.DependencyChecker
+  change_safety:
+    enabled: true
+    weight: 5
+    checker: ai_readiness.checkers.change_safety.ChangeSafetyChecker
+  llm_code_review:
+    enabled: true
+    weight: 20
+    checker: ai_readiness.checkers.llm_code_review.LLMCodeReviewChecker
+
+llm:
+  enabled: true
+  provider: openai  # "openai" or "azure"
+  model: gpt-4o
+  # api_key is loaded from ~/.ai-readiness/config.yaml or env vars
+  # Azure OpenAI settings (only used when provider: azure)
+  # azure_endpoint: https://your-resource.openai.azure.com/
+  # azure_api_version: 2024-12-01-preview
+  # azure_deployment: gpt-4o  # defaults to model name if not set
+
+output:
+  format: terminal
+  verbose: false
+
+# Assessment settings
+assessment:
+  # Target AI agents — only these are scored; others shown as info.
+  # Options: copilot, cursor, claude, aider, agents_md
+  # Omit or set to empty list to use default scoring (generic "has any AI config").
+  # Can also be set via CLI: --agents copilot,cursor
+  # target_agents: [copilot]

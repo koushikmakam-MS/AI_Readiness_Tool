@@ -1,0 +1,217 @@
+trigger:
+  branches:
+    include:
+      - main
+
+schedules:
+  - cron: "0 8 * * 1"  # Weekly Monday 8am UTC
+    displayName: "Weekly AI Readiness Scan"
+    branches:
+      include:
+        - main
+    always: true
+
+parameters:
+  - name: repoUrls
+    displayName: "Repository URLs to scan (comma-separated ADO Git URLs)"
+    type: string
+    default: ""
+  - name: targetAgents
+    displayName: "Target AI agents (comma-separated: copilot,cursor,claude,aider)"
+    type: string
+    default: "copilot"
+  - name: additionalEmails
+    displayName: "Additional email recipients (comma-separated)"
+    type: string
+    default: ""
+  - name: enableLlm
+    displayName: "Enable LLM deep analysis"
+    type: boolean
+    default: true
+
+variables:
+  - name: pythonVersion
+    value: "3.11"
+  - name: toolDir
+    value: "$(Build.SourcesDirectory)"
+
+pool:
+  vmImage: "ubuntu-latest"
+
+stages:
+  - stage: Scan
+    displayName: "AI Readiness Scan"
+    jobs:
+      - job: RunScan
+        displayName: "Scan Repositories"
+        timeoutInMinutes: 60
+        steps:
+          - task: UsePythonVersion@0
+            displayName: "Use Python $(pythonVersion)"
+            inputs:
+              versionSpec: "$(pythonVersion)"
+
+          - script: |
+              cd $(toolDir)
+              pip install --quiet -e ".[dev]"
+            displayName: "Install AI Readiness Tool"
+
+          - script: |
+              cd $(toolDir)
+              python -m pytest tests/ -x -q --tb=short
+            displayName: "Run Unit Tests"
+
+          - script: |
+              set -e
+              mkdir -p $(Build.ArtifactStagingDirectory)/reports
+
+              # Determine repos to scan
+              REPO_URLS="${{ parameters.repoUrls }}"
+              if [ -z "$REPO_URLS" ]; then
+                echo "##[warning]No repo URLs provided. Use pipeline parameters to specify repos."
+                echo "No repositories specified for scanning." > $(Build.ArtifactStagingDirectory)/reports/summary.md
+                exit 0
+              fi
+
+              # Build CLI flags
+              LLM_FLAG=""
+              if [ "${{ parameters.enableLlm }}" = "false" ]; then
+                LLM_FLAG="--no-llm"
+              fi
+
+              AGENTS_FLAG=""
+              if [ -n "${{ parameters.targetAgents }}" ]; then
+                AGENTS_FLAG="--agents ${{ parameters.targetAgents }}"
+              fi
+
+              # Split comma-separated URLs and scan each
+              OVERALL_SUMMARY="# AI Readiness Scan Results\n\n"
+              OVERALL_SUMMARY+="**Scan Date:** $(date -u '+%Y-%m-%d %H:%M UTC')\n"
+              OVERALL_SUMMARY+="**Target Agents:** ${{ parameters.targetAgents }}\n"
+              OVERALL_SUMMARY+="**LLM Analysis:** ${{ parameters.enableLlm }}\n\n"
+              OVERALL_SUMMARY+="---\n\n"
+
+              IFS=',' read -ra REPOS <<< "$REPO_URLS"
+              for REPO_URL in "${REPOS[@]}"; do
+                REPO_URL=$(echo "$REPO_URL" | xargs)  # trim whitespace
+                if [ -z "$REPO_URL" ]; then continue; fi
+
+                REPO_NAME=$(basename "$REPO_URL" .git)
+                echo "##[group]Scanning: $REPO_NAME"
+                echo "Repository: $REPO_URL"
+
+                REPORT_FILE="$(Build.ArtifactStagingDirectory)/reports/${REPO_NAME}.md"
+                JSON_FILE="$(Build.ArtifactStagingDirectory)/reports/${REPO_NAME}.json"
+
+                # Run scan — markdown report
+                python -m ai_readiness.cli check "$REPO_URL" \
+                  --format markdown \
+                  --github-token "$(System.AccessToken)" \
+                  $LLM_FLAG $AGENTS_FLAG \
+                  --verbose \
+                  > "$REPORT_FILE" 2>&1 || true
+
+                # Run scan — JSON report (for programmatic use)
+                python -m ai_readiness.cli check "$REPO_URL" \
+                  --format json \
+                  --github-token "$(System.AccessToken)" \
+                  $LLM_FLAG $AGENTS_FLAG \
+                  > "$JSON_FILE" 2>&1 || true
+
+                # Extract score from JSON for summary
+                SCORE=$(python -c "
+              import json, sys
+              try:
+                  data = json.load(open('$JSON_FILE'))
+                  print(f\"{data['overall_score']:.1f}\")
+              except:
+                  print('N/A')
+              " 2>/dev/null || echo "N/A")
+
+                RATING=$(python -c "
+              import json, sys
+              try:
+                  data = json.load(open('$JSON_FILE'))
+                  print(data['rating'])
+              except:
+                  print('Unknown')
+              " 2>/dev/null || echo "Unknown")
+
+                OVERALL_SUMMARY+="## $REPO_NAME\n"
+                OVERALL_SUMMARY+="- **Score:** $SCORE/100 ($RATING)\n"
+                OVERALL_SUMMARY+="- **URL:** $REPO_URL\n"
+                OVERALL_SUMMARY+="- [Full Report](${REPO_NAME}.md)\n\n"
+
+                echo "  Score: $SCORE/100 ($RATING)"
+                echo "##[endgroup]"
+              done
+
+              # Write summary
+              echo -e "$OVERALL_SUMMARY" > "$(Build.ArtifactStagingDirectory)/reports/summary.md"
+              echo "##vso[task.setvariable variable=scanCompleted]true"
+            displayName: "Scan Repositories"
+            env:
+              AZURE_OPENAI_API_KEY: $(AZURE_OPENAI_API_KEY)
+              AZURE_OPENAI_ENDPOINT: $(AZURE_OPENAI_ENDPOINT)
+              AZURE_OPENAI_API_VERSION: $(AZURE_OPENAI_API_VERSION)
+
+          - task: PublishBuildArtifacts@1
+            displayName: "Publish Reports"
+            inputs:
+              PathtoPublish: "$(Build.ArtifactStagingDirectory)/reports"
+              ArtifactName: "ai-readiness-reports"
+            condition: always()
+
+  - stage: Notify
+    displayName: "Send Email Report"
+    dependsOn: Scan
+    condition: succeeded()
+    jobs:
+      - job: SendEmail
+        displayName: "Email Results"
+        steps:
+          - task: DownloadBuildArtifacts@1
+            displayName: "Download Reports"
+            inputs:
+              buildType: "current"
+              downloadType: "single"
+              artifactName: "ai-readiness-reports"
+              downloadPath: "$(System.ArtifactsDirectory)"
+
+          - script: |
+              # Build email body from summary.md
+              SUMMARY_FILE="$(System.ArtifactsDirectory)/ai-readiness-reports/summary.md"
+              if [ -f "$SUMMARY_FILE" ]; then
+                BODY=$(cat "$SUMMARY_FILE")
+              else
+                BODY="AI Readiness scan completed. Check pipeline artifacts for detailed reports."
+              fi
+              echo "##vso[task.setvariable variable=emailBody]$BODY"
+            displayName: "Prepare Email Content"
+
+          - task: SendEmail@1
+            displayName: "Send Report Email"
+            inputs:
+              To: "$(Build.RequestedForEmail)"
+              Cc: "koushikmakam@microsoft.com"
+              Subject: "AI Readiness Scan Report — $(Build.BuildNumber)"
+              Body: |
+                AI Readiness Scan Results
+                ========================
+
+                Pipeline: $(Build.DefinitionName)
+                Build: $(Build.BuildNumber)
+                Triggered by: $(Build.RequestedFor)
+                Date: $(Build.SourceVersion)
+
+                Target Agents: ${{ parameters.targetAgents }}
+                LLM Analysis: ${{ parameters.enableLlm }}
+
+                Full reports are attached as pipeline artifacts.
+                View them at: $(System.CollectionUri)$(System.TeamProject)/_build/results?buildId=$(Build.BuildId)&view=artifacts
+
+                ---
+                This is an automated report from the AI Readiness Tool.
+              AddAttachment: true
+              Attachment: "$(System.ArtifactsDirectory)/ai-readiness-reports/summary.md"
+            condition: always()
