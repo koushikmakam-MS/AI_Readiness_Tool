@@ -98,3 +98,50 @@ test: add coverage for context-aware skip logic
 ## Code of Conduct
 
 This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md). By participating, you agree to uphold it.
+
+---
+
+## Adding a New Persona
+
+The tool ships 10 built-in personas. You can add more by following these steps:
+
+### 1. Create the prompt file
+
+Copy the template and fill in the placeholders:
+
+```bash
+cp ai_readiness/personas/prompts/_TEMPLATE.md ai_readiness/personas/prompts/your_persona.md
+```
+
+Edit `your_persona.md` — give the persona a name, role, and perspective. The three scoring dimensions (`context_sufficiency`, `ambiguity_risk`, `token_efficiency`) are fixed; only the perspective changes.
+
+### 2. Register in `registry.py`
+
+Add a tuple to the `_BUILTIN` list in `ai_readiness/personas/registry.py`:
+
+```python
+(
+    "your_id",                    # unique snake_case ID
+    "Character Name",             # display name
+    "Role Description",           # short role (shown in report tables)
+    "your_persona.md",            # prompt file name
+    "interest keywords...",       # comma-separated topics the persona cares about
+    "A simulated task sentence.", # end-to-end task for validation
+    1.0,                          # weight (1.0 = default)
+),
+```
+
+### 3. Update counts
+
+- Update the persona count in `README.md` (search for "10 personas")
+- Add a row to the persona cast table in `README.md`
+
+### 4. Test
+
+```bash
+# Run existing tests
+pytest
+
+# Test your persona on a repo
+ai-readiness personas . --personas your_id --format markdown
+```
