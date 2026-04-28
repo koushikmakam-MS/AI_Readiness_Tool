@@ -1,0 +1,34 @@
+# Persona configuration for `ai-readiness personas`.
+#
+# All built-in personas are defined in code; this file overrides them.
+# Defaults shown below match the built-ins exactly — edit to customise.
+
+prompt_version: v1
+top_k: 30                # how many top-relevance docs each persona scores
+max_chunk_chars: 8000    # docs larger than this are split by H1/H2 headings
+simulated_tasks: true    # run the per-persona "use only the docs" task
+
+# USD per 1M tokens. Override if you have negotiated pricing.
+prices:
+  gpt-4o:
+    input: 2.50
+    output: 10.00
+  gpt-4o-mini:
+    input: 0.15
+    output: 0.60
+  text-embedding-3-small:
+    input: 0.02
+    output: 0.0
+
+# Personas: enable/disable, set weights, override interests / simulated tasks.
+# Keys must match built-in persona_ids.
+personas:
+  onboarding:        { enabled: true,  weight: 1.0 }   # Dora the Explorer
+  bug_fix:           { enabled: true,  weight: 1.0 }   # Sherlock Hound
+  feature_builder:   { enabled: true,  weight: 1.0 }   # Bob the Builder
+  refactor:          { enabled: true,  weight: 1.0 }   # Handy Manny
+  ops_deploy:        { enabled: true,  weight: 1.0 }   # Postman Pat
+  api_consumer:      { enabled: true,  weight: 1.0 }   # Mickey Mouse
+  security_review:   { enabled: true,  weight: 1.0 }   # Inspector Gadget
+  architecture:      { enabled: true,  weight: 1.0 }   # Pinky & The Brain
+  test_qa:           { enabled: true,  weight: 1.0 }   # Scooby-Doo

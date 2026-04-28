@@ -2,20 +2,39 @@
 
 Assess how **AI coding agent friendly** your repository is. Get a score (0-100) with actionable recommendations — works with any language, any codebase, any AI agent.
 
+The tool ships **two complementary engines**:
+
+1. **`check`** — fast static + LLM-assisted analysis of repo hygiene (READMEs, configs, tests, ops, agent files…).
+2. **`personas`** — sends every doc through 9 cartoon-coded AI-agent personas (Dora, Sherlock, Bob, Handy Manny, Postman Pat, Mickey, Inspector Gadget, Brain, Scooby) and rates whether the docs give them enough context to do their job without hallucinating.
+
+Both can be run in one shot with `check --with-personas` and exported to **terminal, JSON, Markdown, or PDF**.
+
+---
+
 ## Features
 
 - **Language-agnostic** — detects your stack and adapts checks automatically
 - **Agent-agnostic** — checks readiness for Copilot, Cursor, Aider, Claude, and more
+- **Persona suite** — 9 role-based personas score docs on context sufficiency, ambiguity / hallucination risk, and token efficiency
 - **Plugin architecture** — add custom dimensions via YAML config
-- **Hybrid analysis** — fast static checks + optional LLM-powered deep analysis (OpenAI)
-- **3 output formats** — Terminal (rich), JSON (CI), Markdown (PR comments)
+- **Hybrid analysis** — static checks + optional LLM-powered deep analysis (OpenAI **or** Azure OpenAI auto-detected)
+- **4 output formats** — Terminal (rich), JSON (CI), Markdown (PR comments), PDF (executive reports)
+- **Read-only** — never modifies the target repo; safe to run on any clone
+- **Cost-aware** — `--max-cost-usd` hard cap, dry-run estimates, embedding + score caching
+- **Quota-friendly** — adaptive 429 backoff, configurable concurrency, `--max-embed` cap for tight Azure tiers
+- **Run history** — every persona run is persisted under `~/.ai-readiness/cache/<repo-id>/runs/<timestamp>/`
 - **Local & remote** — scan local paths or clone from GitHub URLs
+
+---
 
 ## Quick Start
 
 ```bash
 # Install
 pip install -e .
+
+# Optional: PDF output support
+pip install -e .[pdf]
 
 # Scan current directory
 ai-readiness check .
@@ -26,24 +45,48 @@ ai-readiness check https://github.com/microsoft/vscode
 # Scan with shorthand
 ai-readiness check microsoft/vscode
 
-# Clone to specific directory
-ai-readiness check owner/repo --clone-dir ./repos
+# Run static checks AND the persona suite, export to PDF
+ai-readiness check . --with-personas --format pdf --output report.pdf
 ```
 
-## Output Formats
+---
+
+## Commands
+
+| Command | Purpose |
+|---|---|
+| `check <path-or-url>` | Run the static + LLM repo assessment. Add `--with-personas` to also run the persona suite. |
+| `personas <path-or-url>` | Score docs through the 9 AI-agent personas (full controls). |
+| `init-config` | Bootstrap `~/.ai-readiness/config.yaml`. |
+| `list-checkers` | List the configured assessment dimensions. |
+
+---
+
+## `check` — Static + LLM Assessment
 
 ```bash
-# Terminal (default) — colored output with score bars
-ai-readiness check .
-
-# JSON — machine-readable for CI pipelines
-ai-readiness check . --format json
-
-# Markdown — shareable, suitable for PR comments
-ai-readiness check . --format markdown
+ai-readiness check . [--with-personas] [options]
 ```
 
-## Assessment Dimensions
+### Common flags
+
+```bash
+--format terminal|json|markdown|pdf      # Output format
+--output PATH                             # Required for --format pdf
+--no-llm                                  # Disable LLM analysis (static only)
+--config FILE                             # Custom config YAML
+--agents copilot,cursor,claude,aider      # Score only specific agents
+--with-personas                           # Also run the persona suite
+--personas onboarding,architecture        # (with --with-personas) subset
+--personas-max-cost-usd 1.50              # (with --with-personas) cost cap
+--personas-max-embed 300                  # (with --with-personas) chunk cap
+--personas-concurrency 2                  # (with --with-personas) parallelism
+--chat-model gpt-4o                       # Override chat model / Azure deployment
+--embedding-model text-embedding-3-large  # Override embedding model
+--verbose                                 # Detailed output
+```
+
+### Assessment dimensions
 
 | Dimension | Weight | What it checks |
 |-----------|--------|----------------|
@@ -55,28 +98,130 @@ ai-readiness check . --format markdown
 | 📦 Dependency Management | 8% | Lock files, manifests, version pinning |
 | 🛡️ Change Safety | 7% | PR templates, pre-commit hooks, security policy |
 
-## Scoring
+### Scoring
 
 - Each dimension scores **0-10** based on checks passed
 - **Overall score** = weighted average (0-100)
 - Ratings: 🔴 Poor (0-39) · 🟡 Fair (40-59) · 🟢 Good (60-79) · 🌟 Excellent (80-100)
 
-## LLM Analysis
+---
 
-By default, the tool runs LLM-powered deep analysis on top of static checks using OpenAI GPT-4o.
+## `personas` — Doc Readiness for AI Agents
+
+The persona suite asks: *"If an AI coding agent only had your docs, could it actually do its job?"* Each persona scores docs on three rubric dimensions (1–5):
+
+- **Context sufficiency** — does the doc give the agent what it needs?
+- **Ambiguity / hallucination risk** — could the doc lead the agent astray?
+- **Token efficiency** — is the signal-to-noise ratio worth the context window?
+
+### The cast
+
+| ID | Persona | Role |
+|---|---|---|
+| `onboarding` | Dora the Explorer | New contributor / first-time agent |
+| `bug_fix` | Sherlock Hound | Debug & defect localisation |
+| `feature_builder` | Bob the Builder | Adding a new feature |
+| `refactor` | Handy Manny | Refactoring existing code safely |
+| `ops_deploy` | Postman Pat | Build, run, deploy |
+| `api_consumer` | Mickey Mouse | External API/SDK consumer |
+| `security_review` | Inspector Gadget | Security review |
+| `architecture` | Pinky & The Brain | Big-picture architectural understanding |
+| `test_qa` | Scooby-Doo | Test/QA, coverage, fixtures |
+
+### Common usage
 
 ```bash
-# Initialize config with API key
+# Run all 9 personas, markdown report
+ai-readiness personas .
+
+# Just one persona, hard cost cap, fewer chunks
+ai-readiness personas . \
+    --personas onboarding \
+    --max-cost-usd 0.50 \
+    --max-embed 100 \
+    --format markdown
+
+# Dry-run (estimate without LLM calls)
+ai-readiness personas . --dry-run
+```
+
+### All `personas` flags
+
+```bash
+--personas onboarding,architecture        # Comma-separated subset
+--format terminal|json|markdown
+--top-k N                                 # Top-N most relevant docs per persona
+--max-docs N                              # Hard cap on docs scored per persona
+--max-embed N                             # Cap chunks embedded (Azure quota relief)
+--sample N                                # Random sample from shortlist
+--max-cost-usd 1.50                       # Abort once estimated spend exceeds this
+--concurrency 5                           # Parallel LLM calls
+--no-simulated-task                       # Skip the per-persona end-to-end task
+--dry-run                                 # Estimate cost only
+--no-cache                                # Disable caching for this run
+--clear-cache                             # Wipe cache for this repo first
+--cache-dir PATH                          # Override cache root
+--cache-key KEY                           # Override repo cache key
+--chat-model gpt-4o                       # Chat model / Azure deployment
+--embedding-model text-embedding-3-large  # Embedding model / Azure deployment
+--verbose
+```
+
+### What gets persisted
+
+Every persona run writes to `~/.ai-readiness/cache/<repo-id>/runs/<UTC-timestamp>/`:
+
+- `report.json` — full structured payload
+- `report.md` — human-readable Markdown
+
+Plus a rolling `runs/latest.json` pointer. Embeddings and per-chunk persona scores are also cached (SQLite) so re-runs cost only a fraction of the first run.
+
+---
+
+## LLM Configuration
+
+The tool auto-detects **Azure OpenAI** when these env vars are set:
+
+```powershell
+$env:AZURE_OPENAI_API_KEY = "..."
+$env:AZURE_OPENAI_ENDPOINT = "https://<resource>.openai.azure.com/"
+$env:AZURE_OPENAI_API_VERSION = "2024-12-01-preview"
+```
+
+Otherwise it falls back to the **OpenAI** API key in `~/.ai-readiness/config.yaml`:
+
+```bash
 ai-readiness init-config --api-key sk-...
+```
 
-# Run with LLM (default)
-ai-readiness check .
+To run completely offline (static checks only):
 
-# Run without LLM (offline/static only)
+```bash
 ai-readiness check . --no-llm
 ```
 
-Config is stored at `~/.ai-readiness/config.yaml`.
+---
+
+## Output Formats
+
+```bash
+# Terminal (default) — rich colored output with score bars
+ai-readiness check .
+
+# JSON — machine-readable for CI pipelines
+ai-readiness check . --format json > report.json
+
+# Markdown — shareable, suitable for PR comments
+ai-readiness check . --format markdown > report.md
+
+# PDF — executive report (requires the [pdf] extra)
+pip install -e .[pdf]
+ai-readiness check . --with-personas --format pdf --output report.pdf
+```
+
+When `--with-personas` is set, the persona section (overall score + per-persona table) is appended to all four formats.
+
+---
 
 ## CI Integration
 
@@ -90,6 +235,8 @@ Add to your GitHub Actions workflow:
 ```
 
 Or use the included workflow at `.github/workflows/ai-readiness.yml` which auto-comments on PRs.
+
+---
 
 ## Custom Checkers
 
@@ -105,7 +252,6 @@ class MyCustomChecker(BaseChecker):
     default_weight = 10.0
 
     def run_checks(self) -> list[CheckResult]:
-        # Your checks here
         return [
             CheckResult(
                 name="My check",
@@ -125,13 +271,64 @@ dimensions:
     checker: my_module.MyCustomChecker
 ```
 
-## Commands
+---
 
-```bash
-ai-readiness check <path-or-url>    # Run assessment
-ai-readiness init-config             # Create user config
-ai-readiness list-checkers           # Show configured dimensions
+## Custom Personas
+
+Override or extend personas via `config/personas.yaml`. Each persona points to a prompt file under `ai_readiness/personas/prompts/`:
+
+```yaml
+personas:
+  onboarding:
+    weight: 1.5            # bump onboarding's contribution to overall
+    enabled: true
+  my_custom_persona:
+    display: "Velma Dinkley"
+    role: "documentation linter"
+    prompt_file: "velma.md"
+    interests: ["style guides", "glossary", "term consistency"]
+    simulated_task: "Identify undefined terms in the docs."
+    weight: 1.0
+
+defaults:
+  prompt_version: v1
+  top_k: 30
+  max_chunk_chars: 8000
+  simulated_tasks: true
 ```
+
+---
+
+## Architecture (one-pager)
+
+```
+ai_readiness/
+├── cli.py                  # Typer CLI: check, personas, init-config, list-checkers
+├── core/
+│   ├── engine.py           # Static + LLM assessment engine
+│   ├── reporter.py         # Terminal / JSON / Markdown reporters
+│   ├── pdf_reporter.py     # Markdown -> HTML -> PDF (xhtml2pdf)
+│   ├── models.py           # Report dataclasses
+│   └── ...
+├── checkers/               # Pluggable dimension checkers
+├── llm/
+│   ├── client.py           # Generic LLM client (Azure auto-detect, embeddings + chat)
+│   └── analyzer.py         # Higher-level LLM analyzer for `check`
+└── personas/
+    ├── base.py             # Persona / dimension / rubric dataclasses
+    ├── doc_index.py        # Doc discovery + chunking
+    ├── embedder.py         # Async embedding + persona ranking
+    ├── runner.py           # Async pipeline (discover -> rank -> score -> task)
+    ├── scorer.py           # Aggregate per-persona + overall
+    ├── reporter.py         # Persona-only reporter
+    ├── persistence.py      # Save runs to cache dir
+    ├── throttle.py         # Adaptive 429 backoff
+    ├── cache.py            # SQLite embeddings + score cache
+    ├── registry.py         # Built-in personas + YAML overrides
+    └── prompts/            # 9 persona system prompts
+```
+
+---
 
 ## License
 

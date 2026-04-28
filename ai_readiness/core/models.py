@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 
 class CheckStatus(Enum):
@@ -139,6 +139,7 @@ class Report:
     categories: list[CategoryScore] = field(default_factory=list)
     languages_detected: list[str] = field(default_factory=list)
     llm_summary: Optional[str] = None
+    personas_report: Optional[Any] = None  # ai_readiness.personas.runner.RunReport
 
     @property
     def overall_score(self) -> float:

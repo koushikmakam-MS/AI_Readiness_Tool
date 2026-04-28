@@ -83,6 +83,10 @@ class TerminalReporter:
         # Recommendations
         self._print_recommendations(report)
 
+        # Personas (if attached via --with-personas)
+        if report.personas_report is not None:
+            self._print_personas(report.personas_report)
+
         # LLM summary
         if report.llm_summary:
             self.console.print(
@@ -209,6 +213,34 @@ class TerminalReporter:
             self.console.print(f"  {i}. {rec}")
         self.console.print()
 
+    def _print_personas(self, persona_report: Any) -> None:
+        """Render the persona suite block on the terminal."""
+        overall = persona_report.overall
+        color = _score_color(overall.overall_score / 10.0)
+        self.console.print(
+            f"[bold]🎭 Persona Doc Readiness[/bold]  "
+            f"[{color}]{overall.overall_score:.1f}/100[/{color}]  "
+            f"[dim](docs analysed: {persona_report.docs_total}, "
+            f"chunks scored: {persona_report.chunks_total}, "
+            f"cost ${overall.total_cost_usd:.4f})[/dim]"
+        )
+
+        table = Table(show_header=True, header_style="bold")
+        table.add_column("Persona", style="bold")
+        table.add_column("Score", justify="right")
+        table.add_column("Docs", justify="right")
+        table.add_column("Cost", justify="right", style="dim")
+        for r in persona_report.persona_results:
+            score_color = _score_color(r.overall_score / 10.0)
+            table.add_row(
+                f"{r.display_name}",
+                f"[{score_color}]{r.overall_score:.1f}[/{score_color}]",
+                str(len(r.rubric_scores)),
+                f"${r.estimated_cost_usd:.4f}",
+            )
+        self.console.print(table)
+        self.console.print()
+
 
 # ── JSON reporter ────────────────────────────────────────────────────
 
@@ -261,6 +293,24 @@ class JSONReporter:
             "recommendations": report.recommendations,
             "llm_summary": report.llm_summary,
         }
+        if report.personas_report is not None:
+            pr = report.personas_report
+            payload["personas"] = {
+                "overall_score": round(pr.overall.overall_score, 2),
+                "docs_total": pr.docs_total,
+                "chunks_total": pr.chunks_total,
+                "total_cost_usd": round(pr.overall.total_cost_usd, 4),
+                "per_persona": [
+                    {
+                        "persona_id": r.persona_id,
+                        "display_name": r.display_name,
+                        "score": round(r.overall_score, 2),
+                        "docs_scored": len(r.rubric_scores),
+                        "estimated_cost_usd": round(r.estimated_cost_usd, 4),
+                    }
+                    for r in pr.persona_results
+                ],
+            }
         return json.dumps(payload, indent=2, ensure_ascii=False)
 
 
@@ -358,23 +408,62 @@ class MarkdownReporter:
             lines.append(report.llm_summary)
             lines.append("")
 
+        # Persona doc readiness suite (if attached)
+        if report.personas_report is not None:
+            pr = report.personas_report
+            lines.append("## 🎭 Persona Doc Readiness")
+            lines.append("")
+            lines.append(
+                f"**Overall:** {pr.overall.overall_score:.1f} / 100  "
+                f"· Docs analysed: {pr.docs_total}  "
+                f"· Chunks scored: {pr.chunks_total}  "
+                f"· Cost: ${pr.overall.total_cost_usd:.4f}"
+            )
+            lines.append("")
+            lines.append("| Persona | Score | Docs scored | Cost (USD) |")
+            lines.append("|---------|------:|------------:|-----------:|")
+            for r in pr.persona_results:
+                lines.append(
+                    f"| {r.display_name} (`{r.persona_id}`) "
+                    f"| {r.overall_score:.1f} "
+                    f"| {len(r.rubric_scores)} "
+                    f"| ${r.estimated_cost_usd:.4f} |"
+                )
+            lines.append("")
+
         return "\n".join(lines)
 
 
 # ── Public entry point ───────────────────────────────────────────────
 
 
-def format_report(report: Report, format: str = "terminal", verbose: bool = False) -> str:
+def format_report(
+    report: Report,
+    format: str = "terminal",
+    verbose: bool = False,
+    output_path: Any = None,
+) -> str:
     """Format and optionally print the report.
 
-    Returns the formatted string for json/markdown, or an empty string for
-    terminal (which prints directly via rich).
+    Returns the formatted string for json/markdown, an empty string for
+    terminal (which prints directly via rich), or the saved file path for pdf.
     """
     if format == "json":
         return JSONReporter.render(report)
 
     if format == "markdown":
         return MarkdownReporter.render(report)
+
+    if format == "pdf":
+        from pathlib import Path
+
+        from ai_readiness.core.pdf_reporter import render_pdf
+
+        if output_path is None:
+            raise ValueError("--output PATH is required when --format pdf is used.")
+        md = MarkdownReporter.render(report)
+        saved = render_pdf(md, Path(output_path))
+        return f"PDF report saved to {saved}"
 
     # Default: terminal
     TerminalReporter(verbose=verbose).print(report)

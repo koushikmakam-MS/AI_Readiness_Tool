@@ -36,3 +36,5 @@ Thumbs.db
 *.tmp
 *.bak
 config/azure_test.yaml
+
+mdpdf.log

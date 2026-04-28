@@ -63,7 +63,7 @@ class AssessmentEngine:
                         llm_config=llm_config,
                     )
                 elif dim_id == "ai_config":
-                    target_agents = self.config.get("assessment", {}).get("target_agents")
+                    target_agents = (self.config.get("assessment") or {}).get("target_agents")
                     checker = checker_cls(
                         repo_path=self.repo_path,
                         languages=self.languages,
@@ -103,7 +103,7 @@ class AssessmentEngine:
 
         # --- Build AI-focused categories from dimension checks ---
         console.print("  [dim]▸[/dim] Building category scores …")
-        target_agents = self.config.get("assessment", {}).get("target_agents")
+        target_agents = (self.config.get("assessment") or {}).get("target_agents")
         report.categories = build_categories(report, target_agents=target_agents)
 
         return report
