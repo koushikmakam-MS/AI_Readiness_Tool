@@ -12,20 +12,22 @@ from ai_readiness.personas.base import DIMENSION_LABELS, Dimension
 from ai_readiness.personas.runner import RunReport
 
 
-def render_terminal(report: RunReport, console: Console, *, verbose: bool = False) -> None:
+def render_terminal(report: RunReport, console: Console, *, verbose: bool = False, show_cost: bool = False) -> None:
     if report.dry_run:
         console.print("[bold cyan]Persona Run — DRY RUN[/bold cyan]")
+        cost_part = f"  Estimated cost: [yellow]${report.overall.total_cost_usd:.4f}[/yellow]" if show_cost else ""
         console.print(
-            f"Docs: {report.docs_total}  Chunks: {report.chunks_total}  "
-            f"Estimated cost: [yellow]${report.overall.total_cost_usd:.4f}[/yellow]"
+            f"Docs: {report.docs_total}  Chunks: {report.chunks_total}"
+            f"{cost_part}"
         )
         return
 
     console.print("[bold cyan]Persona Documentation Readiness[/bold cyan]")
+    cost_part = f"  Cost: ${report.overall.total_cost_usd:.4f}" if show_cost else ""
     console.print(
         f"Docs: {report.docs_total}  Chunks: {report.chunks_total}  "
-        f"Overall: [bold]{report.overall.overall_score}/100[/bold]  "
-        f"Cost: ${report.overall.total_cost_usd:.4f}"
+        f"Overall: [bold]{report.overall.overall_score}/100[/bold]"
+        f"{cost_part}"
     )
     if report.aborted_reason:
         console.print(f"[yellow]Aborted: {report.aborted_reason}[/yellow]")
@@ -35,15 +37,18 @@ def render_terminal(report: RunReport, console: Console, *, verbose: bool = Fals
     persona_table.add_column("Display", style="dim")
     persona_table.add_column("Score", justify="right")
     persona_table.add_column("Docs", justify="right")
-    persona_table.add_column("Cost $", justify="right")
+    if show_cost:
+        persona_table.add_column("Cost $", justify="right")
     for r in report.persona_results:
-        persona_table.add_row(
+        row = [
             r.persona_id,
             r.display_name,
             f"{r.overall_score:.1f}",
             str(r.docs_scored),
-            f"{r.estimated_cost_usd:.4f}",
-        )
+        ]
+        if show_cost:
+            row.append(f"{r.estimated_cost_usd:.4f}")
+        persona_table.add_row(*row)
     console.print(persona_table)
 
     dim_table = Table(title="Dimension Averages (1-5)")
@@ -127,25 +132,66 @@ def to_json(report: RunReport) -> str:
     return json.dumps(payload, indent=2)
 
 
-def to_markdown(report: RunReport) -> str:
+def to_markdown(report: RunReport, *, show_cost: bool = False) -> str:
     lines: list[str] = ["# Persona Documentation Readiness Report", ""]
     lines.append(f"- Docs analysed: **{report.docs_total}**")
     lines.append(f"- Chunks scored: **{report.chunks_total}**")
     lines.append(f"- Overall score: **{report.overall.overall_score}/100**")
-    lines.append(f"- Estimated cost: **${report.overall.total_cost_usd:.4f}**")
+    if show_cost:
+        lines.append(f"- Estimated cost: **${report.overall.total_cost_usd:.4f}**")
     if report.aborted_reason:
         lines.append(f"- ⚠️ Aborted: {report.aborted_reason}")
     lines.append("")
-    lines.append("## Per-persona scores")
+
+    # -- Persona overview table (with roles) at the top --
+    lines.append("## Meet the Personas")
     lines.append("")
-    lines.append("| Persona | Display | Score | Docs scored | Cost (USD) |")
-    lines.append("|---|---|---:|---:|---:|")
+    lines.append(
+        "Each persona represents a different AI agent role. They evaluate your "
+        "documentation from their unique perspective — asking whether the docs "
+        "give them enough context to do their job without hallucinating."
+    )
+    lines.append("")
+    if show_cost:
+        lines.append("| Persona | Role | Score (/100) | Docs scored | Cost (USD) |")
+        lines.append("|---------|------|-------------:|------------:|-----------:|")
+    else:
+        lines.append("| Persona | Role | Score (/100) | Docs scored |")
+        lines.append("|---------|------|-------------:|------------:|")
     for r in report.persona_results:
-        lines.append(
-            f"| `{r.persona_id}` | {r.display_name} | {r.overall_score:.1f} | "
-            f"{r.docs_scored} | {r.estimated_cost_usd:.4f} |"
-        )
+        role = r.role or "—"
+        row = f"| {r.display_name} (`{r.persona_id}`) | {role} | {r.overall_score:.1f}/100 | {r.docs_scored} "
+        if show_cost:
+            row += f"| {r.estimated_cost_usd:.4f} |"
+        else:
+            row += "|"
+        lines.append(row)
     lines.append("")
+
+    # -- Rubric explanation --
+    lines.append("## How Scores Work")
+    lines.append("")
+    lines.append(
+        "Every doc is scored on three dimensions (1–5 each):"
+    )
+    lines.append("")
+    lines.append("| Dimension | What It Measures |")
+    lines.append("|-----------|-----------------|")
+    lines.append(
+        "| **Context Sufficiency** | Does the doc give the AI agent enough "
+        "information to complete its task without guessing? |"
+    )
+    lines.append(
+        "| **Ambiguity / Hallucination Risk** | Could vague or contradictory "
+        "content cause the AI to produce incorrect code? |"
+    )
+    lines.append(
+        "| **Token Efficiency** | Is the signal-to-noise ratio worth the "
+        "context window space? |"
+    )
+    lines.append("")
+
+    # -- Dimension averages --
     lines.append("## Dimension averages (1-5)")
     lines.append("")
     for dim in Dimension:
@@ -154,6 +200,8 @@ def to_markdown(report: RunReport) -> str:
             f"{report.overall.per_dimension.get(dim, 0.0):.2f}"
         )
     lines.append("")
+
+    # -- Per-persona improvement details --
     for r in report.persona_results:
         lines.append(f"## {r.display_name} — improvements")
         lines.append("")

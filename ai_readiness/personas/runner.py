@@ -303,6 +303,7 @@ class PersonaRunner:
         result = PersonaResult(
             persona_id=persona.persona_id,
             display_name=persona.display_name,
+            role=persona.role,
             docs_considered=len(shortlist),
         )
         if not shortlist:

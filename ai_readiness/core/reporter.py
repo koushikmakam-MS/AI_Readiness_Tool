@@ -58,8 +58,9 @@ def _score_color(score: float) -> str:
 class TerminalReporter:
     """Pretty-print a report to the terminal via rich."""
 
-    def __init__(self, verbose: bool = False) -> None:
+    def __init__(self, verbose: bool = False, show_cost: bool = False) -> None:
         self.verbose = verbose
+        self.show_cost = show_cost
         self.console = Console()
 
     def print(self, report: Report) -> None:
@@ -217,27 +218,31 @@ class TerminalReporter:
         """Render the persona suite block on the terminal."""
         overall = persona_report.overall
         color = _score_color(overall.overall_score / 10.0)
+        cost_part = f", cost ${overall.total_cost_usd:.4f}" if self.show_cost else ""
         self.console.print(
             f"[bold]🎭 Persona Doc Readiness[/bold]  "
             f"[{color}]{overall.overall_score:.1f}/100[/{color}]  "
             f"[dim](docs analysed: {persona_report.docs_total}, "
-            f"chunks scored: {persona_report.chunks_total}, "
-            f"cost ${overall.total_cost_usd:.4f})[/dim]"
+            f"chunks scored: {persona_report.chunks_total}"
+            f"{cost_part})[/dim]"
         )
 
         table = Table(show_header=True, header_style="bold")
         table.add_column("Persona", style="bold")
         table.add_column("Score", justify="right")
         table.add_column("Docs", justify="right")
-        table.add_column("Cost", justify="right", style="dim")
+        if self.show_cost:
+            table.add_column("Cost", justify="right", style="dim")
         for r in persona_report.persona_results:
             score_color = _score_color(r.overall_score / 10.0)
-            table.add_row(
+            row = [
                 f"{r.display_name}",
                 f"[{score_color}]{r.overall_score:.1f}[/{score_color}]",
                 str(len(r.rubric_scores)),
-                f"${r.estimated_cost_usd:.4f}",
-            )
+            ]
+            if self.show_cost:
+                row.append(f"${r.estimated_cost_usd:.4f}")
+            table.add_row(*row)
         self.console.print(table)
         self.console.print()
 
@@ -321,7 +326,72 @@ class MarkdownReporter:
     """Render a report as a Markdown document."""
 
     @staticmethod
-    def render(report: Report) -> str:
+    def _render_personas(report: Report, show_cost: bool = False) -> list[str]:
+        """Render the persona doc readiness section."""
+        lines: list[str] = []
+        if report.personas_report is None:
+            return lines
+        pr = report.personas_report
+        lines.append("## 🎭 Persona Doc Readiness")
+        lines.append("")
+        lines.append(
+            "Each persona represents a different AI agent role. They evaluate your "
+            "documentation from their unique perspective — asking whether the docs "
+            "give them enough context to do their job without hallucinating."
+        )
+        lines.append("")
+        overall_line = (
+            f"**Overall:** {pr.overall.overall_score:.1f} / 100  "
+            f"· Docs analysed: {pr.docs_total}  "
+            f"· Chunks scored: {pr.chunks_total}"
+        )
+        if show_cost:
+            overall_line += f"  · Cost: ${pr.overall.total_cost_usd:.4f}"
+        lines.append(overall_line)
+        lines.append("")
+        if show_cost:
+            lines.append("| Persona | Role | Score (/100) | Docs scored | Cost (USD) |")
+            lines.append("|---------|------|-------------:|------------:|-----------:|")
+        else:
+            lines.append("| Persona | Role | Score (/100) | Docs scored |")
+            lines.append("|---------|------|-------------:|------------:|")
+        for r in pr.persona_results:
+            role = getattr(r, "role", "") or "—"
+            row = (
+                f"| {r.display_name} (`{r.persona_id}`) "
+                f"| {role} "
+                f"| {r.overall_score:.1f}/100 "
+                f"| {len(r.rubric_scores)} "
+            )
+            if show_cost:
+                row += f"| ${r.estimated_cost_usd:.4f} |"
+            else:
+                row += "|"
+            lines.append(row)
+        lines.append("")
+        lines.append("### How Scores Work")
+        lines.append("")
+        lines.append("Every doc is scored on three dimensions (1–5 each):")
+        lines.append("")
+        lines.append("| Dimension | What It Measures |")
+        lines.append("|-----------|-----------------|")
+        lines.append(
+            "| **Context Sufficiency** | Does the doc give the AI agent enough "
+            "information to complete its task without guessing? |"
+        )
+        lines.append(
+            "| **Ambiguity / Hallucination Risk** | Could vague or contradictory "
+            "content cause the AI to produce incorrect code? |"
+        )
+        lines.append(
+            "| **Token Efficiency** | Is the signal-to-noise ratio worth the "
+            "context window space? |"
+        )
+        lines.append("")
+        return lines
+
+    @staticmethod
+    def render(report: Report, show_cost: bool = False) -> str:
         lines: list[str] = []
         rating = report.rating
 
@@ -346,6 +416,9 @@ class MarkdownReporter:
                     f"| {cat.passed_checks}/{cat.total_checks} | {cat.weight:.0f}% |"
                 )
             lines.append("")
+
+            # Persona doc readiness right after category scores
+            lines.extend(MarkdownReporter._render_personas(report, show_cost=show_cost))
 
             lines.append("## Detailed Findings")
             lines.append("")
@@ -376,6 +449,9 @@ class MarkdownReporter:
                     f"| {dim.passed_checks}/{dim.total_checks} | {dim.weight:.0f}% |"
                 )
             lines.append("")
+
+            # Persona doc readiness right after dimension scores
+            lines.extend(MarkdownReporter._render_personas(report, show_cost=show_cost))
 
             lines.append("## Detailed Findings")
             lines.append("")
@@ -408,29 +484,6 @@ class MarkdownReporter:
             lines.append(report.llm_summary)
             lines.append("")
 
-        # Persona doc readiness suite (if attached)
-        if report.personas_report is not None:
-            pr = report.personas_report
-            lines.append("## 🎭 Persona Doc Readiness")
-            lines.append("")
-            lines.append(
-                f"**Overall:** {pr.overall.overall_score:.1f} / 100  "
-                f"· Docs analysed: {pr.docs_total}  "
-                f"· Chunks scored: {pr.chunks_total}  "
-                f"· Cost: ${pr.overall.total_cost_usd:.4f}"
-            )
-            lines.append("")
-            lines.append("| Persona | Score | Docs scored | Cost (USD) |")
-            lines.append("|---------|------:|------------:|-----------:|")
-            for r in pr.persona_results:
-                lines.append(
-                    f"| {r.display_name} (`{r.persona_id}`) "
-                    f"| {r.overall_score:.1f} "
-                    f"| {len(r.rubric_scores)} "
-                    f"| ${r.estimated_cost_usd:.4f} |"
-                )
-            lines.append("")
-
         return "\n".join(lines)
 
 
@@ -442,6 +495,7 @@ def format_report(
     format: str = "terminal",
     verbose: bool = False,
     output_path: Any = None,
+    show_cost: bool = False,
 ) -> str:
     """Format and optionally print the report.
 
@@ -452,7 +506,7 @@ def format_report(
         return JSONReporter.render(report)
 
     if format == "markdown":
-        return MarkdownReporter.render(report)
+        return MarkdownReporter.render(report, show_cost=show_cost)
 
     if format == "pdf":
         from pathlib import Path
@@ -461,10 +515,10 @@ def format_report(
 
         if output_path is None:
             raise ValueError("--output PATH is required when --format pdf is used.")
-        md = MarkdownReporter.render(report)
+        md = MarkdownReporter.render(report, show_cost=show_cost)
         saved = render_pdf(md, Path(output_path))
         return f"PDF report saved to {saved}"
 
     # Default: terminal
-    TerminalReporter(verbose=verbose).print(report)
+    TerminalReporter(verbose=verbose, show_cost=show_cost).print(report)
     return ""

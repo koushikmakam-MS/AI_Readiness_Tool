@@ -40,6 +40,13 @@ class ChangeSafetyChecker(BaseChecker):
                 status=CheckStatus.PASS,
                 message="Pull request template directory found.",
             )
+        if not self._is_collaborative():
+            return CheckResult(
+                name="PR template",
+                status=CheckStatus.SKIP,
+                message="Skipped — repo does not appear to be a collaborative project.",
+                scorable=False,
+            )
         return CheckResult(
             name="PR template",
             status=CheckStatus.FAIL,
@@ -63,6 +70,13 @@ class ChangeSafetyChecker(BaseChecker):
                 name="Issue templates",
                 status=CheckStatus.PASS,
                 message="Issue template directory found.",
+            )
+        if not self._is_collaborative():
+            return CheckResult(
+                name="Issue templates",
+                status=CheckStatus.SKIP,
+                message="Skipped — repo does not appear to be a collaborative project.",
+                scorable=False,
             )
         return CheckResult(
             name="Issue templates",

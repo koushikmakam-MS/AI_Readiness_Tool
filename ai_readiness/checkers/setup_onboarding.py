@@ -71,6 +71,14 @@ class SetupOnboardingChecker(BaseChecker):
                 status=CheckStatus.PASS,
                 message="Dockerfile or Docker Compose configuration found.",
             )
+        # Skip if repo doesn't look like a deployable service
+        if not self._looks_like_service():
+            return CheckResult(
+                name="Container support",
+                status=CheckStatus.SKIP,
+                message="Skipped — repo does not appear to be a deployable service.",
+                scorable=False,
+            )
         return CheckResult(
             name="Container support",
             status=CheckStatus.FAIL,
@@ -118,6 +126,14 @@ class SetupOnboardingChecker(BaseChecker):
                 name="Environment template",
                 status=CheckStatus.PASS,
                 message="Environment variable template found.",
+            )
+        # Skip if repo doesn't show env var usage signals
+        if not self._has_env_var_usage() and not self._looks_like_service():
+            return CheckResult(
+                name="Environment template",
+                status=CheckStatus.SKIP,
+                message="Skipped — no environment variable usage detected.",
+                scorable=False,
             )
         return CheckResult(
             name="Environment template",

@@ -90,3 +90,81 @@ class BaseChecker(ABC):
     def has_language(self, *langs: str) -> bool:
         """Check if any of the given languages were detected."""
         return any(lang.lower() in [l.lower() for l in self.languages] for lang in langs)
+
+    # --- Repo context detection helpers ---
+
+    def _looks_like_service(self) -> bool:
+        """Heuristic: does this repo look like a deployable service/app?
+
+        Returns True if the repo has signals like web frameworks, server
+        entry points, deployment configs, or CI/CD pipelines that deploy.
+        """
+        # Web framework / server indicators
+        service_files = [
+            "Dockerfile", "docker-compose.yml", "docker-compose.yaml",
+            "compose.yml", "compose.yaml",
+            "Procfile", "app.yaml", "serverless.yml", "serverless.yaml",
+            "kubernetes", "k8s", "helm",
+            "terraform", ".terraform",
+        ]
+        for name in service_files:
+            if (self.repo_path / name).exists():
+                return True
+
+        # Check for deployment directories
+        deploy_dirs = ["deploy", "deployment", "infra", "infrastructure", "k8s", "helm", "kubernetes"]
+        for d in deploy_dirs:
+            if (self.repo_path / d).is_dir():
+                return True
+
+        # Check for web/server entry points in common manifests
+        for manifest in ["package.json", "pyproject.toml", "setup.py", "pom.xml", "build.gradle"]:
+            path = self.repo_path / manifest
+            if path.is_file():
+                try:
+                    content = path.read_text(encoding="utf-8", errors="replace")[:10_000]
+                    server_hints = ["flask", "django", "fastapi", "express", "koa", "hapi",
+                                    "spring-boot", "asp.net", "webapi", "grpc", "uvicorn",
+                                    "gunicorn", "nginx", "server", "host"]
+                    if any(h in content.lower() for h in server_hints):
+                        return True
+                except OSError:
+                    pass
+
+        return False
+
+    def _has_env_var_usage(self) -> bool:
+        """Heuristic: does this repo reference environment variables?"""
+        # Check for .env files (not templates)
+        env_patterns = [".env", ".env.local", ".env.development", ".env.production"]
+        for p in env_patterns:
+            if (self.repo_path / p).is_file():
+                return True
+
+        # Check common config files for env var patterns
+        config_files = ["appsettings.json", "config.yaml", "config.yml",
+                        ".env.example", ".env.template", ".env.sample"]
+        for c in config_files:
+            if (self.repo_path / c).is_file():
+                return True
+
+        return False
+
+    def _is_collaborative(self) -> bool:
+        """Heuristic: does this repo look like a multi-contributor project?"""
+        signals = [
+            ".github/CODEOWNERS", "CODEOWNERS",
+            ".github/pull_request_template.md",
+            ".github/ISSUE_TEMPLATE",
+            "CONTRIBUTING.md", "CONTRIBUTING",
+        ]
+        for s in signals:
+            if (self.repo_path / s).exists():
+                return True
+
+        # Check git log for multiple authors (lightweight: just check if .git exists
+        # and there's evidence of collaboration)
+        if (self.repo_path / ".github").is_dir():
+            return True
+
+        return False

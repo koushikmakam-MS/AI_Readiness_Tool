@@ -94,6 +94,6 @@ def test_root_sh_detected_as_helper(tmp_path):
 def test_empty_repo_all_fail(tmp_path):
     results = _run(tmp_path)
     assert results["Single-command build"].status is CheckStatus.FAIL
-    assert results["Container support"].status is CheckStatus.FAIL
+    assert results["Container support"].status is CheckStatus.SKIP  # no service signals
     assert results["Helper scripts"].status is CheckStatus.FAIL
-    assert results["Environment template"].status is CheckStatus.FAIL
+    assert results["Environment template"].status is CheckStatus.SKIP  # no env var signals

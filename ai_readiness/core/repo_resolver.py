@@ -63,8 +63,8 @@ class RepoResolver:
                     return f"https://github.com/{parts[0]}/{parts[1]}.git"
 
         url = self.target
-        # Ensure .git suffix for HTTPS URLs
-        if url.startswith("https://") and not url.endswith(".git"):
+        # Ensure .git suffix for HTTPS URLs (skip Azure DevOps _git URLs)
+        if url.startswith("https://") and not url.endswith(".git") and "/_git/" not in url:
             url = url.rstrip("/") + ".git"
 
         return url
@@ -104,23 +104,37 @@ class RepoResolver:
             clone_path = Path(self._temp_dir.name) / repo_name
 
         if clone_path.exists() and (clone_path / ".git").exists():
-            # Already cloned — pull latest
+            # Already cloned — pull latest (shallow fetch to stay fast)
             console.print(f"[dim]Repository already cloned at {clone_path}, pulling latest...[/dim]")
             try:
                 subprocess.run(
-                    ["git", "-C", str(clone_path), "pull", "--ff-only", "--quiet"],
+                    ["git", "-C", str(clone_path), "fetch", "--depth", "1", "--quiet"],
                     check=True,
                     capture_output=True,
                     timeout=120,
                 )
+                subprocess.run(
+                    ["git", "-C", str(clone_path), "reset", "--hard", "FETCH_HEAD"],
+                    check=True,
+                    capture_output=True,
+                    timeout=30,
+                )
             except subprocess.CalledProcessError:
                 console.print("[yellow]Warning: git pull failed, using existing clone.[/yellow]")
         else:
-            # Fresh clone (shallow for speed)
-            console.print(f"[dim]Cloning {display_url} → {clone_path}...[/dim]")
+            # Fresh shallow clone (no history, single branch, no tags)
+            console.print(f"[dim]Cloning {display_url} → {clone_path} (shallow)...[/dim]")
             try:
                 subprocess.run(
-                    ["git", "clone", "--depth", "1", "--quiet", clone_url, str(clone_path)],
+                    [
+                        "git", "clone",
+                        "--depth", "1",
+                        "--single-branch",
+                        "--no-tags",
+                        "--quiet",
+                        clone_url,
+                        str(clone_path),
+                    ],
                     check=True,
                     capture_output=True,
                     timeout=300,

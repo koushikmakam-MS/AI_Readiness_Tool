@@ -181,6 +181,11 @@ def check(
         "--embedding-model",
         help="(With --with-personas) Override embedding model / Azure deployment.",
     ),
+    show_cost: bool = typer.Option(
+        False,
+        "--show-cost",
+        help="Include cost information (USD) in the report output.",
+    ),
 ) -> None:
     """Assess a repository's AI coding agent readiness."""
     try:
@@ -216,6 +221,7 @@ def check(
                 format=output_format,
                 verbose=verbose,
                 output_path=output_path,
+                show_cost=show_cost,
             )
             if output:
                 console.print(output)
@@ -320,6 +326,11 @@ def personas(
     github_token: Optional[str] = typer.Option(
         None, "--github-token", envvar="GITHUB_TOKEN"
     ),
+    show_cost: bool = typer.Option(
+        False,
+        "--show-cost",
+        help="Include cost information (USD) in the report output.",
+    ),
 ) -> None:
     """Score docs through multiple AI-agent personas (Dora, Sherlock, etc.)."""
     import logging
@@ -406,9 +417,9 @@ def personas(
             if fmt == "json":
                 console.print(to_json(report))
             elif fmt in ("md", "markdown"):
-                console.print(to_markdown(report))
+                console.print(to_markdown(report, show_cost=show_cost))
             else:
-                render_terminal(report, console, verbose=verbose)
+                render_terminal(report, console, verbose=verbose, show_cost=show_cost)
             if run_dir is not None:
                 console.print(f"[dim]Run saved to {run_dir}[/dim]")
 

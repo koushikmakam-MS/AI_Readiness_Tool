@@ -80,6 +80,7 @@ class PersonaResult:
 
     persona_id: str
     display_name: str
+    role: str = ""
     rubric_scores: list[RubricScore] = field(default_factory=list)
     task_result: Optional[SimulatedTaskResult] = None
     docs_considered: int = 0

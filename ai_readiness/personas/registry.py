@@ -116,6 +116,18 @@ _BUILTIN: tuple[tuple[str, str, str, str, str, str, float], ...] = (
         "where coverage is weakest.",
         1.0,
     ),
+    (
+        "token_optimizer",
+        "Wall-E",
+        "Token Optimizer Agent",
+        "wall_e.md",
+        "File sizes, doc bloat, redundancy, signal-to-noise ratio, heading "
+        "structure, duplication, stale content, information density, context "
+        "window efficiency.",
+        "Identify the top 5 docs that waste the most tokens for an AI agent "
+        "and suggest how to make them more compact without losing information.",
+        1.0,
+    ),
 )
 
 

@@ -5,7 +5,7 @@ Assess how **AI coding agent friendly** your repository is. Get a score (0-100) 
 The tool ships **two complementary engines**:
 
 1. **`check`** — fast static + LLM-assisted analysis of repo hygiene (READMEs, configs, tests, ops, agent files…).
-2. **`personas`** — sends every doc through 9 cartoon-coded AI-agent personas (Dora, Sherlock, Bob, Handy Manny, Postman Pat, Mickey, Inspector Gadget, Brain, Scooby) and rates whether the docs give them enough context to do their job without hallucinating.
+2. **`personas`** — sends every doc through 10 cartoon-coded AI-agent personas (Dora, Sherlock, Bob, Handy Manny, Postman Pat, Mickey, Inspector Gadget, Brain, Scooby, Wall-E) and rates whether the docs give them enough context to do their job without hallucinating.
 
 Both can be run in one shot with `check --with-personas` and exported to **terminal, JSON, Markdown, or PDF**.
 
@@ -15,7 +15,7 @@ Both can be run in one shot with `check --with-personas` and exported to **termi
 
 - **Language-agnostic** — detects your stack and adapts checks automatically
 - **Agent-agnostic** — checks readiness for Copilot, Cursor, Aider, Claude, and more
-- **Persona suite** — 9 role-based personas score docs on context sufficiency, ambiguity / hallucination risk, and token efficiency
+- **Persona suite** — 10 role-based personas score docs on context sufficiency, ambiguity / hallucination risk, and token efficiency
 - **Plugin architecture** — add custom dimensions via YAML config
 - **Hybrid analysis** — static checks + optional LLM-powered deep analysis (OpenAI **or** Azure OpenAI auto-detected)
 - **4 output formats** — Terminal (rich), JSON (CI), Markdown (PR comments), PDF (executive reports)
@@ -114,6 +114,20 @@ The persona suite asks: *"If an AI coding agent only had your docs, could it act
 - **Ambiguity / hallucination risk** — could the doc lead the agent astray?
 - **Token efficiency** — is the signal-to-noise ratio worth the context window?
 
+### How Persona Analysis Works
+
+Each persona evaluates every documentation file against a **3-dimension rubric** (scored 1–5):
+
+| Rubric Dimension | What It Answers |
+|---|---|
+| **Context Sufficiency** | Does this doc give the AI agent enough information to complete its task without guessing? |
+| **Ambiguity / Hallucination Risk** | Could vague or contradictory content cause the AI to produce incorrect code? |
+| **Token Efficiency** | Is the signal-to-noise ratio worth the context window space, or is the doc bloated with irrelevant content? |
+
+**Example:** When the *"Dora the Explorer" (Onboarding)* persona scans a repo, it asks: *"If I were a brand-new AI agent dropped into this codebase, could I set up, build, and make my first contribution using only these docs?"* If the answer is no, it flags exactly what's missing — setup steps, environment variables, architecture overview, etc.
+
+This gives you something static analysis alone cannot: a **role-specific quality signal**. A repo might score well on *having* a README, but persona analysis reveals that the README lacks the build instructions an AI agent actually needs. It bridges the gap between *"docs exist"* and *"docs are actually useful to AI agents."*
+
 ### The cast
 
 | ID | Persona | Role |
@@ -127,11 +141,12 @@ The persona suite asks: *"If an AI coding agent only had your docs, could it act
 | `security_review` | Inspector Gadget | Security review |
 | `architecture` | Pinky & The Brain | Big-picture architectural understanding |
 | `test_qa` | Scooby-Doo | Test/QA, coverage, fixtures |
+| `token_optimizer` | Wall-E | Token efficiency & doc compactness |
 
 ### Common usage
 
 ```bash
-# Run all 9 personas, markdown report
+# Run all 10 personas, markdown report
 ai-readiness personas .
 
 # Just one persona, hard cost cap, fewer chunks
@@ -299,33 +314,164 @@ defaults:
 
 ---
 
-## Architecture (one-pager)
+## Architecture
 
+### High-Level Flow
+
+```mermaid
+flowchart LR
+    A["🗂️ Repo\n(local or URL)"] --> B["RepoResolver\nclone / resolve"]
+    B --> C{"Engine"}
+    C -->|Static| D["Checkers\n(pluggable)"]
+    C -->|LLM| E["LLM Analyzer"]
+    C -->|--with-personas| F["Persona Runner"]
+
+    D --> G["Report"]
+    E --> G
+    F --> G
+
+    G --> H["Terminal"]
+    G --> I["JSON"]
+    G --> J["Markdown"]
+    G --> K["PDF"]
 ```
-ai_readiness/
-├── cli.py                  # Typer CLI: check, personas, init-config, list-checkers
-├── core/
-│   ├── engine.py           # Static + LLM assessment engine
-│   ├── reporter.py         # Terminal / JSON / Markdown reporters
-│   ├── pdf_reporter.py     # Markdown -> HTML -> PDF (xhtml2pdf)
-│   ├── models.py           # Report dataclasses
-│   └── ...
-├── checkers/               # Pluggable dimension checkers
-├── llm/
-│   ├── client.py           # Generic LLM client (Azure auto-detect, embeddings + chat)
-│   └── analyzer.py         # Higher-level LLM analyzer for `check`
-└── personas/
-    ├── base.py             # Persona / dimension / rubric dataclasses
-    ├── doc_index.py        # Doc discovery + chunking
-    ├── embedder.py         # Async embedding + persona ranking
-    ├── runner.py           # Async pipeline (discover -> rank -> score -> task)
-    ├── scorer.py           # Aggregate per-persona + overall
-    ├── reporter.py         # Persona-only reporter
-    ├── persistence.py      # Save runs to cache dir
-    ├── throttle.py         # Adaptive 429 backoff
-    ├── cache.py            # SQLite embeddings + score cache
-    ├── registry.py         # Built-in personas + YAML overrides
-    └── prompts/            # 9 persona system prompts
+
+### Static Assessment Pipeline
+
+```mermaid
+flowchart TB
+    subgraph Checkers["🔍 Pluggable Checkers"]
+        direction TB
+        CH1["📄 Documentation"]
+        CH2["🚀 Setup & Onboarding"]
+        CH3["🤖 AI Agent Config"]
+        CH4["✅ Testing"]
+        CH5["🏗️ Code Quality"]
+        CH6["📦 Dependencies"]
+        CH7["🛡️ Change Safety"]
+    end
+
+    Engine["AssessmentEngine"] --> Checkers
+    Checkers --> Scoring["Weighted Scoring\n0–10 per category → 0–100 overall"]
+    Scoring --> Report["Report + Rating\n🔴 Poor · 🟡 Fair · 🟢 Good · 🌟 Excellent"]
+
+    Note["Context-aware: checks like\ncontainer support or PR templates\nskip when repo doesn't need them"]
+    Checkers -.-> Note
+
+    style Note fill:#fffbe6,stroke:#e6c300,color:#333
+```
+
+### Persona Doc-Readiness Pipeline
+
+```mermaid
+flowchart TB
+    Docs["📑 Doc Discovery\n& Chunking"] --> Embed["Embeddings\n(cached, async)"]
+    Embed --> Rank["Rank Chunks\nper Persona"]
+    Rank --> Score["LLM Rubric Scoring\n3 dimensions × 1–5"]
+    Score --> Task["Simulated Task\n(optional)"]
+    Task --> Agg["Aggregate\nper-persona + overall /100"]
+
+    subgraph Personas["🎭 10 Personas"]
+        direction LR
+        P1["🗺️ Dora\nOnboarding"]
+        P2["🔍 Sherlock\nBug Fix"]
+        P3["🏗️ Bob\nFeature"]
+        P4["🔧 Manny\nRefactor"]
+        P5["📮 Pat\nOps/Deploy"]
+        P6["🐭 Mickey\nAPI Consumer"]
+        P7["🕵️ Gadget\nSecurity"]
+        P8["🧠 Brain\nArchitecture"]
+        P9["🐕 Scooby\nTest/QA"]
+        P10["🤖 Wall-E\nToken Optimizer"]
+    end
+
+    Rank --> Personas
+    Personas --> Score
+
+    subgraph Rubric["📊 Scoring Rubric (1–5 each)"]
+        direction LR
+        R1["Context\nSufficiency"]
+        R2["Ambiguity /\nHallucination Risk"]
+        R3["Token\nEfficiency"]
+    end
+
+    Score -.-> Rubric
+
+    subgraph Infra["⚙️ Infrastructure"]
+        direction LR
+        Cache["SQLite Cache\n(embeddings + scores)"]
+        Throttle["Adaptive 429\nBackoff"]
+        Cost["Cost Tracking\n& Hard Cap"]
+    end
+
+    Embed --> Cache
+    Score --> Throttle
+    Agg --> Cost
+```
+
+### Module Map
+
+```mermaid
+graph TB
+    subgraph CLI["cli.py"]
+        check["check"]
+        personas["personas"]
+        init["init-config"]
+        list["list-checkers"]
+    end
+
+    subgraph Core["core/"]
+        engine["engine.py"]
+        reporter["reporter.py"]
+        pdf["pdf_reporter.py"]
+        models["models.py"]
+        resolver["repo_resolver.py"]
+        config["config.py"]
+    end
+
+    subgraph Check["checkers/"]
+        base["base.py"]
+        docs["documentation.py"]
+        setup["setup_onboarding.py"]
+        ai_cfg["ai_config.py"]
+        testing["testing.py"]
+        code_q["code_quality.py"]
+        deps["dependency.py"]
+        safety["change_safety.py"]
+    end
+
+    subgraph LLM["llm/"]
+        client["client.py"]
+        analyzer["analyzer.py"]
+    end
+
+    subgraph Pers["personas/"]
+        p_base["base.py"]
+        doc_idx["doc_index.py"]
+        embedder["embedder.py"]
+        runner["runner.py"]
+        scorer["scorer.py"]
+        p_report["reporter.py"]
+        registry["registry.py"]
+        cache["cache.py"]
+        throttle["throttle.py"]
+        prompts["prompts/ (10 .md)"]
+    end
+
+    check --> engine
+    check --> resolver
+    check --> reporter
+    personas --> runner
+    personas --> p_report
+    engine --> Check
+    engine --> analyzer
+    runner --> embedder
+    runner --> scorer
+    runner --> doc_idx
+    runner --> registry
+    embedder --> client
+    analyzer --> client
+    reporter --> pdf
 ```
 
 ---
