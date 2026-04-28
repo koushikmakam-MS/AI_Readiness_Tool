@@ -56,7 +56,7 @@ ai-readiness check . --with-personas --format pdf --output report.pdf
 | Command | Purpose |
 |---|---|
 | `check <path-or-url>` | Run the static + LLM repo assessment. Add `--with-personas` to also run the persona suite. |
-| `personas <path-or-url>` | Score docs through the 9 AI-agent personas (full controls). |
+| `personas <path-or-url>` | Score docs through the 10 AI-agent personas (full controls). |
 | `init-config` | Bootstrap `~/.ai-readiness/config.yaml`. |
 | `list-checkers` | List the configured assessment dimensions. |
 
@@ -259,7 +259,7 @@ Or use the included workflow at `.github/workflows/ai-readiness.yml` which auto-
 
 ```mermaid
 flowchart LR
-    A["🗂️ Repo\n(local or URL)"] --> B["RepoResolver\nclone / resolve"]
+    A["Repo\n(local or URL)"] --> B["RepoResolver\nclone / resolve"]
     B --> C{"Engine"}
     C -->|Static| D["Checkers\n(pluggable)"]
     C -->|LLM| E["LLM Analyzer"]
@@ -279,22 +279,22 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-    subgraph Checkers["🔍 Pluggable Checkers"]
+    subgraph Checkers["Pluggable Checkers"]
         direction TB
-        CH1["📄 Documentation"]
-        CH2["🚀 Setup & Onboarding"]
-        CH3["🤖 AI Agent Config"]
-        CH4["✅ Testing"]
-        CH5["🏗️ Code Quality"]
-        CH6["📦 Dependencies"]
-        CH7["🛡️ Change Safety"]
+        CH1["Documentation"]
+        CH2["Setup and Onboarding"]
+        CH3["AI Agent Config"]
+        CH4["Testing"]
+        CH5["Code Quality"]
+        CH6["Dependencies"]
+        CH7["Change Safety"]
     end
 
     Engine["AssessmentEngine"] --> Checkers
-    Checkers --> Scoring["Weighted Scoring\n0–10 per category → 0–100 overall"]
-    Scoring --> Report["Report + Rating\n🔴 Poor · 🟡 Fair · 🟢 Good · 🌟 Excellent"]
+    Checkers --> Scoring["Weighted Scoring\n0-10 per category, 0-100 overall"]
+    Scoring --> Report["Report + Rating\nPoor / Fair / Good / Excellent"]
 
-    Note["Context-aware: checks like\ncontainer support or PR templates\nskip when repo doesn't need them"]
+    Note["Context-aware: checks like\ncontainer support or PR templates\nskip when repo does not need them"]
     Checkers -.-> Note
 
     style Note fill:#fffbe6,stroke:#e6c300,color:#333
@@ -304,30 +304,30 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-    Docs["📑 Doc Discovery\n& Chunking"] --> Embed["Embeddings\n(cached, async)"]
+    Docs["Doc Discovery\nand Chunking"] --> Embed["Embeddings\n(cached, async)"]
     Embed --> Rank["Rank Chunks\nper Persona"]
-    Rank --> Score["LLM Rubric Scoring\n3 dimensions × 1–5"]
+    Rank --> Score["LLM Rubric Scoring\n3 dimensions x 1-5"]
     Score --> Task["Simulated Task\n(optional)"]
     Task --> Agg["Aggregate\nper-persona + overall /100"]
 
-    subgraph Personas["🎭 10 Personas"]
+    subgraph Personas["10 Personas"]
         direction LR
-        P1["🗺️ Dora\nOnboarding"]
-        P2["🔍 Sherlock\nBug Fix"]
-        P3["🏗️ Bob\nFeature"]
-        P4["🔧 Manny\nRefactor"]
-        P5["📮 Pat\nOps/Deploy"]
-        P6["🐭 Mickey\nAPI Consumer"]
-        P7["🕵️ Gadget\nSecurity"]
-        P8["🧠 Brain\nArchitecture"]
-        P9["🐕 Scooby\nTest/QA"]
-        P10["🤖 Wall-E\nToken Optimizer"]
+        P1["Dora\nOnboarding"]
+        P2["Sherlock\nBug Fix"]
+        P3["Bob\nFeature"]
+        P4["Manny\nRefactor"]
+        P5["Pat\nOps/Deploy"]
+        P6["Mickey\nAPI Consumer"]
+        P7["Gadget\nSecurity"]
+        P8["Brain\nArchitecture"]
+        P9["Scooby\nTest/QA"]
+        P10["Wall-E\nToken Optimizer"]
     end
 
     Rank --> Personas
     Personas --> Score
 
-    subgraph Rubric["📊 Scoring Rubric (1–5 each)"]
+    subgraph Rubric["Scoring Rubric (1-5 each)"]
         direction LR
         R1["Context\nSufficiency"]
         R2["Ambiguity /\nHallucination Risk"]
@@ -336,11 +336,11 @@ flowchart TB
 
     Score -.-> Rubric
 
-    subgraph Infra["⚙️ Infrastructure"]
+    subgraph Infra["Infrastructure"]
         direction LR
         Cache["SQLite Cache\n(embeddings + scores)"]
         Throttle["Adaptive 429\nBackoff"]
-        Cost["Cost Tracking\n& Hard Cap"]
+        Cost["Cost Tracking\nand Hard Cap"]
     end
 
     Embed --> Cache
@@ -350,67 +350,39 @@ flowchart TB
 
 ### Module Map
 
-```mermaid
-graph TB
-    subgraph CLI["cli.py"]
-        check["check"]
-        personas["personas"]
-        init["init-config"]
-        list["list-checkers"]
-    end
-
-    subgraph Core["core/"]
-        engine["engine.py"]
-        reporter["reporter.py"]
-        pdf["pdf_reporter.py"]
-        models["models.py"]
-        resolver["repo_resolver.py"]
-        config["config.py"]
-    end
-
-    subgraph Check["checkers/"]
-        base["base.py"]
-        docs["documentation.py"]
-        setup["setup_onboarding.py"]
-        ai_cfg["ai_config.py"]
-        testing["testing.py"]
-        code_q["code_quality.py"]
-        deps["dependency.py"]
-        safety["change_safety.py"]
-    end
-
-    subgraph LLM["llm/"]
-        client["client.py"]
-        analyzer["analyzer.py"]
-    end
-
-    subgraph Pers["personas/"]
-        p_base["base.py"]
-        doc_idx["doc_index.py"]
-        embedder["embedder.py"]
-        runner["runner.py"]
-        scorer["scorer.py"]
-        p_report["reporter.py"]
-        registry["registry.py"]
-        cache["cache.py"]
-        throttle["throttle.py"]
-        prompts["prompts/ (10 .md)"]
-    end
-
-    check --> engine
-    check --> resolver
-    check --> reporter
-    personas --> runner
-    personas --> p_report
-    engine --> Check
-    engine --> analyzer
-    runner --> embedder
-    runner --> scorer
-    runner --> doc_idx
-    runner --> registry
-    embedder --> client
-    analyzer --> client
-    reporter --> pdf
+```
+ai_readiness/
+├── cli.py                  # Typer CLI: check, personas, init-config, list-checkers
+├── core/
+│   ├── engine.py           # Static + LLM assessment engine
+│   ├── reporter.py         # Terminal / JSON / Markdown reporters
+│   ├── pdf_reporter.py     # Markdown -> HTML -> PDF (xhtml2pdf)
+│   ├── models.py           # Report dataclasses
+│   ├── repo_resolver.py    # Local path / remote URL resolver (shallow clone)
+│   └── config.py           # YAML config loader
+├── checkers/               # Pluggable dimension checkers (7 built-in)
+│   ├── base.py             # BaseChecker with context-aware helpers
+│   ├── documentation.py
+│   ├── setup_onboarding.py
+│   ├── ai_config.py
+│   ├── testing.py
+│   ├── code_quality.py
+│   ├── dependency.py
+│   └── change_safety.py
+├── llm/
+│   ├── client.py           # Generic LLM client (Azure auto-detect)
+│   └── analyzer.py         # Higher-level LLM analyzer for check
+└── personas/
+    ├── base.py             # Persona / dimension / rubric dataclasses
+    ├── doc_index.py        # Doc discovery + chunking
+    ├── embedder.py         # Async embedding + persona ranking
+    ├── runner.py           # Async pipeline: discover -> rank -> score -> task
+    ├── scorer.py           # Aggregate per-persona + overall
+    ├── reporter.py         # Persona-only reporter
+    ├── registry.py         # Built-in personas + YAML overrides
+    ├── cache.py            # SQLite embeddings + score cache
+    ├── throttle.py         # Adaptive 429 backoff
+    └── prompts/            # 10 persona system prompts (.md)
 ```
 
 ---
