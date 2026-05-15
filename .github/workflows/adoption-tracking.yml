@@ -28,7 +28,7 @@ jobs:
 
       - name: Fetch adoption data
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.ADOPTION_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           REPO="${{ github.repository }}"
           echo "Fetching adoption stats for $REPO..."
