@@ -9,7 +9,7 @@ Generates a polished, executive-friendly HTML report showing:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -149,9 +149,9 @@ def _aggregate_weekly(history: dict) -> list[dict]:
         except ValueError:
             continue
         # Monday-based week start
-        week_start = dt - __import__("datetime").timedelta(days=dt.weekday())
+        week_start = dt - timedelta(days=dt.weekday())
         week_key = week_start.strftime("%Y-%m-%d")
-        week_end = week_start + __import__("datetime").timedelta(days=6)
+        week_end = week_start + timedelta(days=6)
 
         bucket = weeks.setdefault(week_key, {
             "week_start": week_start,
@@ -167,7 +167,7 @@ def _aggregate_weekly(history: dict) -> list[dict]:
     return [weeks[k] for k in sorted(weeks)]
 
 
-# ── Weekly Traffic Chart ──────────────────────────────────────────────────────
+# ── SVG Time Chart ────────────────────────────────────────────────────────────
 
 
 def _traffic_chart(history: dict) -> str:
@@ -175,40 +175,146 @@ def _traffic_chart(history: dict) -> str:
     if not weeks:
         return ""
 
-    max_views = max((w["views"] for w in weeks), default=1) or 1
+    display_weeks = weeks[-12:]  # Show up to 12 weeks
+    n = len(display_weeks)
 
-    rows = []
-    for w in weeks[-8:]:
-        label = f"{w['week_start'].strftime('%b %d')} – {w['week_end'].strftime('%b %d')}"
-        bar_pct = min(100, (w["views"] / max_views) * 100)
+    # Chart dimensions
+    chart_w = 660
+    chart_h = 240
+    pad_l, pad_r, pad_t, pad_b = 50, 20, 20, 50
+    plot_w = chart_w - pad_l - pad_r
+    plot_h = chart_h - pad_t - pad_b
 
-        rows.append(f"""
-        <tr>
-          <td style="padding:6px 12px;font-size:12px;color:#57606a;white-space:nowrap;">{label}</td>
-          <td style="padding:6px 8px;width:50%;">
-            <div style="display:flex;align-items:center;gap:8px;">
-              <div style="background:linear-gradient(90deg,#58a6ff,#3fb950);height:20px;
-                          border-radius:4px;width:{max(bar_pct, 3):.0f}%;min-width:4px;"></div>
-              <span style="font-size:12px;color:#57606a;">{w['views']} views</span>
-            </div>
-          </td>
-          <td style="padding:6px 8px;text-align:center;font-size:12px;color:#24292f;font-weight:600;">
-            {w['clones']} clones
-          </td>
-          <td style="padding:6px 8px;text-align:center;font-size:12px;color:#57606a;">
-            {w['u_clones']} unique
-          </td>
-        </tr>
-        """)
+    max_val = max(
+        max((w["views"] for w in display_weeks), default=1),
+        max((w["clones"] for w in display_weeks), default=1),
+    ) or 1
+    # Round up to a nice number for gridlines
+    grid_step = _nice_step(max_val)
+    max_y = ((max_val // grid_step) + 1) * grid_step
+
+    bar_group_w = plot_w / n
+    bar_w = max(bar_group_w * 0.3, 6)
+    gap = max(bar_w * 0.3, 3)
+
+    svg_parts: list[str] = []
+
+    # Gradient definitions
+    svg_parts.append(f"""
+    <defs>
+      <linearGradient id="viewsGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#58a6ff"/>
+        <stop offset="100%" stop-color="#388bfd"/>
+      </linearGradient>
+      <linearGradient id="clonesGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#3fb950"/>
+        <stop offset="100%" stop-color="#2ea043"/>
+      </linearGradient>
+    </defs>
+    """)
+
+    # Gridlines and Y-axis labels
+    for i in range(int(max_y // grid_step) + 1):
+        val = i * grid_step
+        y = pad_t + plot_h - (val / max_y) * plot_h
+        svg_parts.append(
+            f'<line x1="{pad_l}" y1="{y}" x2="{pad_l + plot_w}" y2="{y}" '
+            f'stroke="#e1e4e8" stroke-width="1"/>'
+        )
+        svg_parts.append(
+            f'<text x="{pad_l - 8}" y="{y + 4}" text-anchor="end" '
+            f'font-size="11" fill="#8b949e" font-family="sans-serif">{int(val)}</text>'
+        )
+
+    # Bars and X-axis labels
+    for i, w in enumerate(display_weeks):
+        cx = pad_l + (i + 0.5) * bar_group_w
+
+        # Views bar
+        v_h = (w["views"] / max_y) * plot_h if max_y else 0
+        v_x = cx - bar_w - gap / 2
+        v_y = pad_t + plot_h - v_h
+        svg_parts.append(
+            f'<rect x="{v_x:.1f}" y="{v_y:.1f}" width="{bar_w:.1f}" height="{v_h:.1f}" '
+            f'rx="3" fill="url(#viewsGrad)" opacity="0.9"/>'
+        )
+        # Value label on top of views bar
+        if w["views"] > 0:
+            svg_parts.append(
+                f'<text x="{v_x + bar_w / 2:.1f}" y="{v_y - 4:.1f}" text-anchor="middle" '
+                f'font-size="10" fill="#388bfd" font-family="sans-serif" font-weight="bold">'
+                f'{w["views"]}</text>'
+            )
+
+        # Clones bar
+        c_h = (w["clones"] / max_y) * plot_h if max_y else 0
+        c_x = cx + gap / 2
+        c_y = pad_t + plot_h - c_h
+        svg_parts.append(
+            f'<rect x="{c_x:.1f}" y="{c_y:.1f}" width="{bar_w:.1f}" height="{c_h:.1f}" '
+            f'rx="3" fill="url(#clonesGrad)" opacity="0.9"/>'
+        )
+        if w["clones"] > 0:
+            svg_parts.append(
+                f'<text x="{c_x + bar_w / 2:.1f}" y="{c_y - 4:.1f}" text-anchor="middle" '
+                f'font-size="10" fill="#2ea043" font-family="sans-serif" font-weight="bold">'
+                f'{w["clones"]}</text>'
+            )
+
+        # X-axis label
+        label = w["week_start"].strftime("%b %d")
+        label_y = pad_t + plot_h + 16
+        svg_parts.append(
+            f'<text x="{cx:.1f}" y="{label_y}" text-anchor="middle" '
+            f'font-size="10" fill="#57606a" font-family="sans-serif">{label}</text>'
+        )
+
+    # Baseline
+    svg_parts.append(
+        f'<line x1="{pad_l}" y1="{pad_t + plot_h}" x2="{pad_l + plot_w}" '
+        f'y2="{pad_t + plot_h}" stroke="#d0d7de" stroke-width="1.5"/>'
+    )
+
+    # Legend
+    legend_y = chart_h + 8
+    svg_parts.append(
+        f'<rect x="{pad_l}" y="{legend_y}" width="12" height="12" rx="2" fill="url(#viewsGrad)"/>'
+        f'<text x="{pad_l + 16}" y="{legend_y + 10}" font-size="11" fill="#57606a" '
+        f'font-family="sans-serif">Views</text>'
+        f'<rect x="{pad_l + 80}" y="{legend_y}" width="12" height="12" rx="2" fill="url(#clonesGrad)"/>'
+        f'<text x="{pad_l + 96}" y="{legend_y + 10}" font-size="11" fill="#57606a" '
+        f'font-family="sans-serif">Clones</text>'
+    )
+
+    svg_h = chart_h + 30
+    svg = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {chart_w} {svg_h}" '
+        f'width="{chart_w}" height="{svg_h}" style="display:block;margin:0 auto;">'
+        + "\n".join(svg_parts)
+        + "</svg>"
+    )
 
     return f"""
     <div style="background:#fff;padding:24px;border:1px solid #d0d7de;border-top:none;">
       <h2 style="margin:0 0 16px;font-size:18px;color:#24292f;">📈 Weekly Traffic</h2>
-      <table style="width:100%;border-collapse:collapse;">
-        {''.join(rows)}
-      </table>
+      {svg}
     </div>
     """
+
+
+def _nice_step(max_val: int | float) -> int:
+    """Pick a human-friendly grid step for the Y axis."""
+    if max_val <= 5:
+        return 1
+    if max_val <= 15:
+        return 5
+    if max_val <= 50:
+        return 10
+    if max_val <= 150:
+        return 25
+    if max_val <= 500:
+        return 50
+    return 100
 
 
 # ── Referrers ─────────────────────────────────────────────────────────────────
