@@ -465,7 +465,7 @@ def list_checkers(
 def adoption(
     action: str = typer.Argument(
         "show",
-        help="Action: 'fetch' to pull latest stats, 'show' to display dashboard.",
+        help="Action: 'fetch' to pull latest stats, 'show' to display dashboard, 'report' to generate HTML email.",
     ),
     repo: Optional[str] = typer.Option(
         None,
@@ -479,6 +479,12 @@ def adoption(
         "--format",
         "-f",
         help="Output format: terminal, json",
+    ),
+    output_path: Optional[Path] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="(report only) Path to write the HTML report file.",
     ),
     data_dir: Optional[Path] = typer.Option(
         None,
@@ -514,6 +520,18 @@ def adoption(
         render_dashboard(repo_root, console, output_format=output_format)
         return
 
+    if act == "report":
+        from ai_readiness.adoption.email_report import generate_adoption_email
+
+        html = generate_adoption_email(repo_root)
+        out = output_path or (repo_root / "adoption_data" / "adoption_report.html")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        with open(out, "w", encoding="utf-8") as fh:
+            fh.write(html)
+        console.print(f"[green]✓[/green] Report saved to [bold]{out}[/bold]")
+        console.print("[dim]Open the file in a browser, then copy/paste into an email.[/dim]")
+        return
+
     # Resolve owner/repo slug (only needed for fetch)
     owner_repo = repo
     if not owner_repo:
@@ -539,7 +557,7 @@ def adoption(
         render_dashboard(repo_root, console, output_format=output_format)
 
     else:
-        console.print(f"[red]Unknown action:[/red] {action}. Use 'fetch' or 'show'.")
+        console.print(f"[red]Unknown action:[/red] {action}. Use 'fetch', 'show', or 'report'.")
         raise typer.Exit(code=1)
 
 
