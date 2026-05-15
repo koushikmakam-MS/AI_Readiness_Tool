@@ -461,6 +461,107 @@ def list_checkers(
     console.print(table)
 
 
+@app.command()
+def adoption(
+    action: str = typer.Argument(
+        "show",
+        help="Action: 'fetch' to pull latest stats, 'show' to display dashboard.",
+    ),
+    repo: Optional[str] = typer.Option(
+        None,
+        "--repo",
+        "-r",
+        help="GitHub owner/repo slug (e.g. koushikmakam-MS/AI_Readiness_Tool). "
+        "Auto-detected from git remote if omitted.",
+    ),
+    output_format: str = typer.Option(
+        "terminal",
+        "--format",
+        "-f",
+        help="Output format: terminal, json",
+    ),
+    data_dir: Optional[Path] = typer.Option(
+        None,
+        "--data-dir",
+        help="Override the repo root used for storing adoption data "
+        "(default: git repo root).",
+    ),
+) -> None:
+    """Track adoption metrics (GitHub clones, views, forks, stars)."""
+    import re
+    import subprocess
+
+    from ai_readiness.adoption.dashboard import render_dashboard
+    from ai_readiness.adoption.github_tracker import fetch_github_stats
+    from ai_readiness.adoption.store import append_snapshot
+
+    # Resolve repo root for data storage
+    repo_root = data_dir
+    if repo_root is None:
+        try:
+            root = subprocess.run(
+                ["git", "rev-parse", "--show-toplevel"],
+                capture_output=True,
+                text=True,
+            )
+            repo_root = Path(root.stdout.strip()) if root.returncode == 0 else Path(".")
+        except FileNotFoundError:
+            repo_root = Path(".")
+
+    act = action.lower().strip()
+
+    if act == "show":
+        render_dashboard(repo_root, console, output_format=output_format)
+        return
+
+    # Resolve owner/repo slug (only needed for fetch)
+    owner_repo = repo
+    if not owner_repo:
+        owner_repo = _detect_github_slug()
+    if not owner_repo:
+        console.print(
+            "[red]Error:[/red] Could not detect GitHub repo. "
+            "Pass [bold]--repo owner/repo[/bold] explicitly."
+        )
+        raise typer.Exit(code=1)
+
+    if act == "fetch":
+        console.print(f"[cyan]Fetching adoption data for [bold]{owner_repo}[/bold]…[/cyan]")
+        try:
+            snapshot = fetch_github_stats(owner_repo)
+        except RuntimeError as exc:
+            console.print(f"[red]Error:[/red] {exc}")
+            raise typer.Exit(code=1)
+
+        path = append_snapshot(repo_root, snapshot)
+        console.print(f"[green]✓[/green] Snapshot saved to [bold]{path}[/bold]")
+        console.print()
+        render_dashboard(repo_root, console, output_format=output_format)
+
+    else:
+        console.print(f"[red]Unknown action:[/red] {action}. Use 'fetch' or 'show'.")
+        raise typer.Exit(code=1)
+
+
+def _detect_github_slug() -> Optional[str]:
+    """Try to extract ``owner/repo`` from the git remotes."""
+    import re
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["git", "remote", "-v"], capture_output=True, text=True
+        )
+    except FileNotFoundError:
+        return None
+
+    for line in result.stdout.splitlines():
+        m = re.search(r"github\.com[:/]([^/]+/[^/\s]+?)(?:\.git)?(?:\s|$)", line)
+        if m:
+            return m.group(1)
+    return None
+
+
 def main() -> None:
     app()
 
