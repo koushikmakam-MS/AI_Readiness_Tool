@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +26,43 @@ def _sparkline(values: list[int | float]) -> str:
     lo, hi = min(values), max(values)
     span = hi - lo if hi != lo else 1
     return "".join(_SPARK_CHARS[min(int((v - lo) / span * 7), 7)] for v in values)
+
+
+def _aggregate_weekly(
+    daily_clones: list[dict], daily_views: list[dict]
+) -> list[dict]:
+    """Aggregate daily entries into Monday-based weekly buckets."""
+    dates: dict[str, dict] = {}
+    for d in daily_clones:
+        dt = d["timestamp"][:10]
+        dates.setdefault(dt, {})["clones"] = d.get("count", 0)
+        dates[dt]["u_clones"] = d.get("uniques", 0)
+    for d in daily_views:
+        dt = d["timestamp"][:10]
+        dates.setdefault(dt, {})["views"] = d.get("count", 0)
+        dates[dt]["u_views"] = d.get("uniques", 0)
+
+    weeks: dict[str, dict] = {}
+    for dt_str in sorted(dates):
+        try:
+            dt = datetime.strptime(dt_str, "%Y-%m-%d")
+        except ValueError:
+            continue
+        week_start = dt - timedelta(days=dt.weekday())
+        week_key = week_start.strftime("%Y-%m-%d")
+        week_end = week_start + timedelta(days=6)
+
+        bucket = weeks.setdefault(week_key, {
+            "start": week_start, "end": week_end,
+            "clones": 0, "u_clones": 0, "views": 0, "u_views": 0,
+        })
+        row = dates[dt_str]
+        bucket["clones"] += row.get("clones", 0)
+        bucket["u_clones"] += row.get("u_clones", 0)
+        bucket["views"] += row.get("views", 0)
+        bucket["u_views"] += row.get("u_views", 0)
+
+    return [weeks[k] for k in sorted(weeks)]
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -108,41 +145,44 @@ def render_dashboard(
     console.print(traffic_table)
     console.print()
 
-    # ── Daily breakdown ──
+    # ── Weekly breakdown ──
     if daily_clones or daily_views:
-        daily_table = Table(
-            title="Daily Breakdown (last 14 days)",
-            show_header=True,
-            header_style="bold green",
-        )
-        daily_table.add_column("Date", style="dim")
-        daily_table.add_column("Clones", justify="right")
-        daily_table.add_column("Unique Clones", justify="right")
-        daily_table.add_column("Views", justify="right")
-        daily_table.add_column("Unique Views", justify="right")
-
-        # Build a merged date map
-        dates: dict[str, dict] = {}
-        for d in daily_clones:
-            dt = d["timestamp"][:10]
-            dates.setdefault(dt, {})["clones"] = d.get("count", 0)
-            dates[dt]["u_clones"] = d.get("uniques", 0)
-        for d in daily_views:
-            dt = d["timestamp"][:10]
-            dates.setdefault(dt, {})["views"] = d.get("count", 0)
-            dates[dt]["u_views"] = d.get("uniques", 0)
-
-        for dt in sorted(dates)[-14:]:
-            row = dates[dt]
-            daily_table.add_row(
-                dt,
-                str(row.get("clones", 0)),
-                str(row.get("u_clones", 0)),
-                str(row.get("views", 0)),
-                str(row.get("u_views", 0)),
+        weeks = _aggregate_weekly(daily_clones, daily_views)
+        if weeks:
+            weekly_table = Table(
+                title="Weekly Breakdown",
+                show_header=True,
+                header_style="bold green",
             )
-        console.print(daily_table)
-        console.print()
+            weekly_table.add_column("Week", style="dim")
+            weekly_table.add_column("Clones", justify="right")
+            weekly_table.add_column("Unique Clones", justify="right")
+            weekly_table.add_column("Views", justify="right")
+            weekly_table.add_column("Unique Views", justify="right")
+            weekly_table.add_column("WoW", justify="right")
+
+            prev_views = None
+            for w in weeks[-8:]:
+                label = f"{w['start'].strftime('%b %d')} – {w['end'].strftime('%b %d')}"
+                if prev_views is not None and prev_views > 0:
+                    delta = ((w["views"] - prev_views) / prev_views) * 100
+                    trend = f"[green]▲ {delta:.0f}%[/green]" if delta > 0 else (
+                        f"[red]▼ {abs(delta):.0f}%[/red]" if delta < 0 else "—"
+                    )
+                else:
+                    trend = ""
+                prev_views = w["views"]
+
+                weekly_table.add_row(
+                    label,
+                    str(w["clones"]),
+                    str(w["u_clones"]),
+                    str(w["views"]),
+                    str(w["u_views"]),
+                    trend,
+                )
+            console.print(weekly_table)
+            console.print()
 
     # ── Top referrers ──
     referrers = latest.get("top_referrers", [])
