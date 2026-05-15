@@ -70,9 +70,44 @@
         }
       ],
       "fork_owners": []
+    },
+    {
+      "timestamp": "2026-05-15T17:07:50.002898+00:00",
+      "source": "github",
+      "repo": "koushikmakam-MS/AI_Readiness_Tool",
+      "stars": 0,
+      "forks_count": 0,
+      "watchers": 0,
+      "open_issues": 0,
+      "clones": {
+        "total": 11,
+        "unique": 11
+      },
+      "views": {
+        "total": 41,
+        "unique": 15
+      },
+      "top_referrers": [
+        {
+          "name": "teams.public.onecdn.static.microsoft",
+          "views": 17,
+          "unique": 9
+        },
+        {
+          "name": "github.com",
+          "views": 9,
+          "unique": 1
+        },
+        {
+          "name": "statics.teams.cdn.office.net",
+          "views": 3,
+          "unique": 1
+        }
+      ],
+      "fork_owners": []
     }
   ],
-  "last_updated": "2026-05-15T17:00:48.787438+00:00",
+  "last_updated": "2026-05-15T17:07:50.003122+00:00",
   "daily_clones": [
     {
       "timestamp": "2026-05-01T00:00:00Z",
